@@ -4,44 +4,67 @@
 extern crate alloc;
 
 use core::alloc::{GlobalAlloc, Layout};
-use core::cell::{Cell, UnsafeCell};
+use core::cell::UnsafeCell;
 use core::panic::PanicInfo;
 use core::ptr::null_mut;
 
+const HEAP_SIZE: usize = 1024;
+const SLOT_SIZE: usize = 128;
+const NUM_SLOTS: usize = HEAP_SIZE / SLOT_SIZE;
+
 struct MyAllocator {
-    heap: UnsafeCell<[u8; 1024]>,
-    used: Cell<bool>,
+    heap: UnsafeCell<[u8; HEAP_SIZE]>,
+    used_slots: UnsafeCell<[bool; NUM_SLOTS]>,
 }
 
-// Required because this allocator is stored in a global static.
-// We are promising we know what we are doing.
 unsafe impl Sync for MyAllocator {}
 
 unsafe impl GlobalAlloc for MyAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if self.used.get() {
+        if layout.size() > SLOT_SIZE {
             return null_mut();
         }
 
-        if layout.size() > 1024 {
-            return null_mut();
+        let used = &mut *self.used_slots.get();
+
+        let mut i = 0;
+        while i < NUM_SLOTS {
+            if !used[i] {
+                used[i] = true;
+
+                let heap_ptr = (*self.heap.get()).as_mut_ptr();
+                return heap_ptr.add(i * SLOT_SIZE);
+            }
+            i += 1;
         }
 
-        self.used.set(true);
-
-        // Get a raw pointer to the start of the heap
-        (*self.heap.get()).as_mut_ptr()
+        null_mut()
     }
 
-    unsafe fn dealloc(&self, _ptr: *mut u8, _layout: Layout) {
-        self.used.set(false);
+    unsafe fn dealloc(&self, ptr: *mut u8, _layout: Layout) {
+        if ptr.is_null() {
+            return;
+        }
+
+        let heap_start = (*self.heap.get()).as_mut_ptr() as usize;
+        let ptr_addr = ptr as usize;
+
+        if ptr_addr < heap_start || ptr_addr >= heap_start + HEAP_SIZE {
+            return;
+        }
+
+        let offset = ptr_addr - heap_start;
+        let slot_index = offset / SLOT_SIZE;
+
+        let used = &mut *self.used_slots.get();
+        used[slot_index] = false;
     }
 }
 
 #[global_allocator]
 static ALLOCATOR: MyAllocator = MyAllocator {
-    heap: UnsafeCell::new([0; 1024]),
-    used: Cell::new(false),
+    heap: UnsafeCell::new([0; HEAP_SIZE]),
+    used_slots: UnsafeCell::new([false; NUM_SLOTS]),
 };
 
 #[panic_handler]
