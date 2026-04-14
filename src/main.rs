@@ -72,7 +72,46 @@ fn panic(_info: &PanicInfo) -> ! {
     loop {}
 }
 
+fn exit(code: i32) -> ! {
+    unsafe {
+        core::arch::asm!(
+            "mov eax, 60",
+            "syscall",
+            in("edi") code,
+            options(noreturn)
+        );
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
-    loop {}
+    unsafe {
+        let layout = Layout::from_size_align(64, 8).unwrap();
+
+        let mut ptrs = [core::ptr::null_mut(); 8];
+
+        let mut i = 0;
+        while i < 8 {
+            let p = ALLOCATOR.alloc(layout);
+            if p.is_null() {
+                exit(1);
+            }
+            ptrs[i] = p;
+            i += 1;
+        }
+
+        let extra = ALLOCATOR.alloc(layout);
+        if !extra.is_null() {
+            exit(2);
+        }
+
+        ALLOCATOR.dealloc(ptrs[0], layout);
+
+        let p_new = ALLOCATOR.alloc(layout);
+        if p_new.is_null() {
+            exit(3);
+        }
+    }
+
+    exit(0);
 }
