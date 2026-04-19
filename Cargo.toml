@@ -3,6 +3,10 @@ name = "rust_esgi"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "rust_esgi"
+path = "src/lib.rs"
+
 [dependencies]
 
 [profile.dev]
@@ -10,3 +14,6 @@ panic = "abort"
 
 [profile.release]
 panic = "abort"
+
+[features]
+default = []
